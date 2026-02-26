@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Soft rounded chat bubble -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,26 C38.5,26 26,36.7 26,50 C26,57.2 29.8,63.6 36,68 L36,80 L48,72 C49.9,72.3 51.9,72.5 54,72.5 C69.5,72.5 82,61.8 82,48.5 C82,35.2 69.5,26 54,26 Z"/>
+    <!-- Lock body - rounded -->
+    <path
+        android:fillColor="#6C63FF"
+        android:pathData="M48,49 C48,47.9 48.9,47 50,47 L58,47 C59.1,47 60,47.9 60,49 L60,57 C60,58.1 59.1,59 58,59 L50,59 C48.9,59 48,58.1 48,57 Z"/>
+    <!-- Lock shackle - smooth arc -->
+    <path
+        android:strokeWidth="2.8"
+        android:strokeColor="#6C63FF"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M51,47 L51,43.5 C51,41.3 52.3,39.5 54,39.5 C55.7,39.5 57,41.3 57,43.5 L57,47"/>
+    <!-- Keyhole -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,51 C53,51 52.2,51.8 52.2,52.8 C52.2,53.5 52.6,54.1 53.2,54.4 L52.5,57 L55.5,57 L54.8,54.4 C55.4,54.1 55.8,53.5 55.8,52.8 C55.8,51.8 55,51 54,51 Z"/>
+</vector>
