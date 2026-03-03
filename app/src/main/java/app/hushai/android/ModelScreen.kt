@@ -29,11 +29,11 @@ data class ModelTier(
 
 val MODEL_TIERS = listOf(
     ModelTier("swift", "⚡", "Swift", "Instant replies",
-        484, 3, "~5 sec", "Quick answers, simple tasks. Like texting a smart friend.", 2),
+        533, 3, "~5 sec", "Quick answers, simple tasks. Like texting a smart friend.", 2),
     ModelTier("smart", "🎯", "Smart", "Best balance",
-        1280, 4, "~8 sec", "Writing, summaries, analysis. Handles most tasks well.", 3),
+        1500, 4, "~8 sec", "Writing, summaries, analysis. Handles most tasks well.", 3),
     ModelTier("genius", "🧠", "Genius", "Most capable",
-        2500, 6, "~12 sec", "Complex reasoning, math, detailed writing. Best everyday choice.", 4)
+        2740, 6, "~12 sec", "Complex reasoning, math, detailed writing. Best everyday choice.", 4)
 )
 
 fun getAvailableStorageMB(): Long {

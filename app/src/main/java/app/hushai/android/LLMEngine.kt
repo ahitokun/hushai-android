@@ -17,18 +17,18 @@ data class ModelInfo(
 val MODELS = mapOf(
     "swift" to ModelInfo(
         "swift", "Swift",
-        "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q4_K_M.gguf",
-        "qwen3-0.6b-q4.gguf", 484
+        "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
+        "qwen3.5-0.8b-q4.gguf", 533
     ),
     "smart" to ModelInfo(
         "smart", "Smart",
-        "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-Q4_K_M.gguf",
-        "qwen3-1.7b-q4.gguf", 1280
+        "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
+        "qwen3.5-2b-q4.gguf", 1500
     ),
     "genius" to ModelInfo(
         "genius", "Genius",
-        "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
-        "qwen3-4b-q4.gguf", 2500
+        "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+        "qwen3.5-4b-q4.gguf", 2740
     )
 )
 

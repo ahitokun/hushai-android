@@ -197,11 +197,11 @@ Java_app_hushai_android_NativeBridge_loadModel(
 
     // Top-K filtering
     llama_sampler_chain_add(g_state.sampler,
-        llama_sampler_init_top_k(40));
+        llama_sampler_init_top_k(20));
 
-    // Min-P filtering (better than top-p for small models)
+    // Min-P filtering
     llama_sampler_chain_add(g_state.sampler,
-        llama_sampler_init_min_p(0.05f, 1));
+        llama_sampler_init_min_p(0.0f, 1));
 
     // Temperature
     llama_sampler_chain_add(g_state.sampler,
@@ -273,6 +273,15 @@ Java_app_hushai_android_NativeBridge_generate(
         LOGE("Tokenization produced no tokens");
         g_state.is_generating.store(false);
         return env->NewStringUTF("[Error: Failed to tokenize prompt]");
+    }
+
+    // Truncate to fit context window (reserve 1024 tokens for response)
+    int n_ctx = (int)llama_n_ctx(g_state.ctx);
+    int max_prompt = n_ctx - 1024;
+    if (max_prompt < 64) max_prompt = 64;
+    if ((int)tokens.size() > max_prompt) {
+        LOGD("Truncating prompt from %zu to %d tokens to fit context (safety limit)", tokens.size(), max_prompt);
+        tokens.resize(max_prompt);
     }
 
     LOGD("Prompt tokenized: %zu tokens", tokens.size());
@@ -421,4 +430,14 @@ Java_app_hushai_android_NativeBridge_getModelInfo(
                        "\nContext: " + std::to_string(n_ctx);
 
     return env->NewStringUTF(info.c_str());
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_app_hushai_android_NativeBridge_countTokens(
+        JNIEnv *env, jobject, jstring jText) {
+    if (!g_state.vocab) return -1;
+    const char *text = env->GetStringUTFChars(jText, nullptr);
+    std::string str(text);
+    env->ReleaseStringUTFChars(jText, text);
+    auto tokens = tokenize(str, false, false);
+    return (jint)tokens.size();
 }

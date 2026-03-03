@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.SharedFlow
  *
  * Usage:
  *   val bridge = NativeBridge()
- *   bridge.loadModel("/path/to/qwen3-1.7b-q4_k_m.gguf", 2048, 4)
+ *   bridge.loadModel("/path/to/qwen3.5-2b-q4.gguf", 2048, 4)
  *   bridge.generate(formattedPrompt, 500) { token -> updateUI(token) }
  *   bridge.release()
  */
@@ -47,6 +47,7 @@ class NativeBridge {
      * @return true if model loaded successfully
      */
     external fun loadModel(modelPath: String, nCtx: Int, nThreads: Int): Boolean
+    external fun countTokens(text: String): Int
 
     /**
      * Generate text from a formatted prompt.
@@ -124,7 +125,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
 
         CoroutineScope(Dispatchers.IO.limitedParallelism(1)).launch {
             try {
-                val nCtx = if (path.contains("0.6b") || isBudget) 2048 else 4096
+                val nCtx = if (path.contains("0.8b") || isBudget) 2048 else if (path.contains("4b")) 8192 else 4096
                 val success = bridge.loadModel(path, nCtx, nThreads)
                 withContext(Dispatchers.Main) {
                     if (success) {
@@ -179,7 +180,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
         // Set up streaming callback
         bridge.tokenCallback = fun(token: String) {
             // Track think blocks
-            if (token.contains("<think>")) insideThink = true
+            if (token.contains("<think>")) { insideThink = true; return }
             if (token.contains("</think>")) { insideThink = false; return }
             if (insideThink) return
 
@@ -222,7 +223,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
     }
 
     /**
-     * Build the ChatML-formatted prompt that Qwen3 expects.
+     * Build the ChatML-formatted prompt that Qwen3.5 expects.
      *
      * Format:
      *   <|im_start|>system\n{system_prompt}<|im_end|>
@@ -245,7 +246,6 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
             buildString {
                 append("You are Hush AI, a private offline assistant. ")
                 append("Be honest. Never invent phone numbers or URLs. Respond in the user's language. ")
-                append("/no_think\n")
                 append(lengthGuide)
                 
                 if (installedApps.isNotEmpty()) append(" $installedApps")
@@ -254,14 +254,15 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
             val now = java.text.SimpleDateFormat(
                 "EEEE, MMMM d, yyyy", java.util.Locale.getDefault()
             ).format(java.util.Date())
+            val tz = java.util.TimeZone.getDefault().id
+            val locale = java.util.Locale.getDefault().toLanguageTag()
 
             buildString {
                 append("You are Hush AI, a private assistant running on-device. ")
-                append("No data leaves this phone. Today is $now. ")
+                append("No data leaves this phone. Today is $now. Timezone: $tz. Locale: $locale. ")
                 append("Respond in the user's language.\n")
-                append("Be helpful and share what you know. Never invent specific phone numbers, URLs, or addresses. If asked about current hours, prices, or whether a place is still open, note that your info may be outdated. ")
+                append("Be helpful, concise, and honest. Keep answers brief unless asked for detail. Never invent specific phone numbers, URLs, or addresses. Your knowledge has a cutoff — do not make up facts you're unsure about. ")
                 append("You work offline with no internet access.\n")
-                append("/no_think\n")
                 append("STYLE: $lengthGuide Match the user's tone.\n")
                 append("When mentioning places, include the full name and address if known. When mentioning phone numbers, include the full number.\n")
                 if (installedApps.isNotEmpty()) append("$installedApps\n")
@@ -279,13 +280,15 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
             }
 
             append("<|im_start|>user\n$userMessage<|im_end|>\n")
-            append("<|im_start|>assistant\n")
+            append("<|im_start|>assistant\n<think>\n</think>\n")
         }
     }
 
     fun stop() {
         bridge.stopGeneration()
     }
+
+    fun countTokens(text: String): Int = if (isLoaded) bridge.countTokens(text) else (text.length / 3)
 
     fun release() {
         stop()

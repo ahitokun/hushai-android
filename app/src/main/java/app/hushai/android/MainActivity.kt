@@ -251,8 +251,9 @@ fun ChatScreen(llmEngine: LLMEngine, modelTier: String = "smart", deviceRam: Int
                     } else {
                         pdfText = ocrText.take(docCharBudget)
                         val totalPages = try { PdfReader.getPageCount(chatContext, it) } catch (_: Exception) { 0 }
-                        val pagesRead = minOf(5, totalPages)
-                        val pageMsg = if (totalPages > 5) "$pagesRead of $totalPages pages analyzed (device limit)" else "$totalPages pages analyzed"
+                        val charRatio = minOf(1.0, docCharBudget.toDouble() / maxOf(1, ocrText.length).toDouble())
+                        val pagesRead = maxOf(1, (totalPages * charRatio).toInt())
+                        val pageMsg = if (pagesRead < totalPages) "$pagesRead of $totalPages pages analyzed (device limit)" else "$totalPages pages analyzed"
                         messages = messages.dropLast(1) + Message("📄 $pdfName — $pageMsg. Ask me anything.", isUser = false)
                     }
                 }
