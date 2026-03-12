@@ -1,87 +1,70 @@
 # Hush AI
 
-Offline AI chat for Android. Runs Qwen3 on your phone. Nothing leaves your device.
+Private AI that runs on your device. No cloud, no accounts, no data collection.
 
-Not fast. But it works and nothing phones home.
+Works offline after a one-time model download. Reads PDFs, Word docs, and text files — all on-device.
 
 ## Download
 
-[APK in Releases](https://github.com/ahitokun/hushai-android/releases) · [hushai.app](https://hushai.app)
-
-## What is this
-
-A private AI assistant that runs 100% on your phone. No servers, no accounts, no telemetry. Pick a model, download it once, and chat offline forever.
-
-It reads PDFs and Word docs too — extracts text locally, OCRs image-based PDFs with ML Kit, and the AI analyzes everything without uploading anything anywhere.
-
-## Why another local LLM app?
-
-I tried PocketPal, MNN Chat, ChatterUI. They're cool but:
-
-- No Kotlin/Java library supports Qwen3 GGUF as of Feb 2026
-- kotlinllamacpp is stuck on an old llama.cpp that can't read Qwen3
-- java-llama.cpp broke its headers after b4916
-- React Native wrappers (llama.rn) work but wrong stack for native Android
-
-So I wrote a ~420 line C++ JNI bridge from scratch using llama.cpp b7446 with `LLAMA_BUILD_COMMON=OFF`. It depends only on `llama.h` — no `common/` headers, no breakage.
+[Google Play](https://play.google.com/store/apps/details?id=app.hushai.android) · [APK in Releases](https://github.com/ahitokun/hushai-android/releases) · [Windows Desktop](https://github.com/ahitokun/hushai-android/releases) · [hushai.app](https://hushai.app)
 
 ## Models
 
+Runs Qwen3.5 — Alibaba's latest open-source model family.
+
+### Mobile (Android)
+
 | Tier | Model | Size | Min RAM |
 |------|-------|------|---------|
-| ⚡ Swift | Qwen3-0.6B Q4_K_M | 484 MB | 3 GB |
-| 🎯 Smart | Qwen3-1.7B Q4_K_M | 1.3 GB | 4 GB |
-| 🧠 Genius | Qwen3-4B Q4_K_M | 2.5 GB | 6 GB |
+| ⚡ Swift | Qwen3.5-0.8B | 533 MB | 3 GB |
+| 🎯 Smart | Qwen3.5-2B | 1.5 GB | 4 GB |
+| 🧠 Genius | Qwen3.5-4B | 2.7 GB | 6 GB |
 
-App auto-recommends based on your phone's RAM.
+### Desktop (Windows)
 
-## Benchmarks
+| Tier | Model | Size | Min RAM |
+|------|-------|------|---------|
+| ⚡ Swift | Qwen3.5 2B | 2.7 GB | 4 GB |
+| 🎯 Smart | Qwen3.5 4B | 3.4 GB | 8 GB |
+| 🧠 Genius | Qwen3.5 9B | 6.6 GB | 16 GB |
 
-Real numbers on real phones:
-
-**Pixel 7** (Tensor G2, 8GB) — Genius (4B):
-- Prefill: ~6s warm, ~21s cold
-- Generation: 4-6 tok/s
-
-**Galaxy A52** (SD 720G, 6GB) — Smart (1.7B):
-- Prefill: ~9s
-- Generation: ~8 tok/s
+App picks the best model for your device automatically.
 
 ## Features
 
 - Chat with streaming responses
-- PDF text extraction + OCR fallback (ML Kit, offline)
-- Word doc support
-- Conversation history (saved locally)
-- Deep linking — AI responses include tappable phone numbers, emails, addresses
-- App detection — knows what's installed, tailors responses
-- Stop button, copy, model switching
-- Dark mode via system theme
+- PDF, Word doc, CSV, and code file support
+- OCR for scanned PDFs (mobile)
+- Conversation history saved locally
+- Tappable phone numbers, emails, addresses in responses
+- Open in email, maps, calendar (desktop)
+- System tray + Ctrl+Shift+H hotkey (desktop)
+- Stop, copy, save, model switching
+- Thinking disabled by default — fast responses
 
 ## Known issues
 
-- First response after model load is slower (cold prefill)
-- 0.6B (Swift) is too small for document analysis — file button hidden on that tier
-- Image-based PDFs depend on OCR quality
+- First response is slower while the model loads into RAM
+- Desktop: Ollama doesn't fully support disabling Qwen3.5 thinking yet — responses may be slower than expected
 - No iOS version yet
+- Windows desktop not code-signed — SmartScreen will warn
 
 ## Build
 
-Needs Android Studio, NDK, and CMake. First build downloads llama.cpp via FetchContent (needs internet).
+### Mobile
+Needs Android Studio, NDK, and CMake.
 
-    git clone https://github.com/ahitokun/hushai-android.git
-    cd hushai-android
-    # Open in Android Studio → Build → Run
+```
+git clone https://github.com/ahitokun/hushai-android.git
+# Open in Android Studio → Build → Run
+```
 
-Tested with NDK 27, CMake 3.22+, Android Studio Ladybug.
+### Desktop
+Needs Node.js and Rust.
 
-## Tech
-
-- Kotlin + Jetpack Compose
-- Custom C++ JNI bridge → llama.cpp b7446
-- ML Kit text recognition (English + Devanagari, offline)
-- SQLite for conversations
-- No external AI libraries or SDKs
+```
+cd app && npm install && npm run tauri build
+```
 
 ## License
 
