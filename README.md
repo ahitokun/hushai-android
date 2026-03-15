@@ -6,6 +6,8 @@ Works offline after a one-time model download. Reads PDFs, Word docs, and text f
 
 ## Download
 
+[<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="80">](https://play.google.com/store/apps/details?id=app.hushai.android)
+
 [Google Play](https://play.google.com/store/apps/details?id=app.hushai.android) · [APK in Releases](https://github.com/ahitokun/hushai-android/releases) · [Windows Desktop](https://github.com/ahitokun/hushai-android/releases) · [hushai.app](https://hushai.app)
 
 ## Models
@@ -33,21 +35,21 @@ App picks the best model for your device automatically.
 ## Features
 
 - Chat with streaming responses
+- Share text from any app into Hush AI for instant help
+- Smart actions — text contacts, draft emails, add calendar events
 - PDF, Word doc, CSV, and code file support
 - OCR for scanned PDFs (mobile)
 - Conversation history saved locally
 - Tappable phone numbers, emails, addresses in responses
-- Open in email, maps, calendar (desktop)
 - System tray + Ctrl+Shift+H hotkey (desktop)
-- Stop, copy, save, model switching
-- Thinking disabled by default — fast responses
+- 200+ languages supported
+- Works completely offline after model download
 
 ## Known issues
 
 - First response is slower while the model loads into RAM
-- Desktop: Ollama doesn't fully support disabling Qwen3.5 thinking yet — responses may be slower than expected
-- No iOS version yet
 - Windows desktop not code-signed — SmartScreen will warn
+- No iOS version yet
 
 ## Build
 
