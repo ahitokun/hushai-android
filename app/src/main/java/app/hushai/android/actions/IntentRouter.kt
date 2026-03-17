@@ -3,8 +3,6 @@ package app.hushai.android.actions
 import android.content.Context
 import android.util.Log
 import app.hushai.android.NativeBridge
-import kotlinx.coroutines.*
-import org.json.JSONObject
 import java.io.File
 
 /**
@@ -14,7 +12,7 @@ import java.io.File
 object IntentRouter {
 
     private const val TAG = "IntentRouter"
-    private const val ROUTER_FILENAME = "hush-functiongemma.Q8_0.gguf"
+    private const val ROUTER_FILENAME = "functiongemma-270m-it-Q8_0.gguf"
     private var bridge: NativeBridge? = null
     private var ready = false
 
@@ -38,21 +36,15 @@ object IntentRouter {
     /** Check if router is ready */
     fun isReady(): Boolean = ready && (bridge?.isRouterLoaded() == true)
 
-    // FunctionGemma prompt template — must match training format
+    // FunctionGemma prompt — developer role activates function calling logic
     private fun buildPrompt(userMessage: String): String {
-        return """<start_of_turn>user
-You have access to these tools:
-- send_message(contact, body, app): Send a text message via WhatsApp, SMS, Signal, or Telegram
-- make_call(contact): Make a phone call
-- send_email(to, subject, body): Send an email
-- create_calendar_event(title, date, time): Create a calendar event or reminder
-- open_app(name): Open an application, website, or folder
-- no_action(): User is just chatting, no action needed
-
-User: $userMessage
-<end_of_turn>
-<start_of_turn>model
-"""
+        return "<start_of_turn>developer\n" +
+            "You are a model that can do function calling with the following functions\n" +
+            "<end_of_turn>\n" +
+            "<start_of_turn>user\n" +
+            "$userMessage\n" +
+            "<end_of_turn>\n" +
+            "<start_of_turn>model\n"
     }
 
     /**
@@ -61,10 +53,10 @@ User: $userMessage
      */
     fun classify(userMessage: String): HushAction? {
         if (!isReady()) return null
-
         try {
             val prompt = buildPrompt(userMessage)
             val raw = bridge?.classifyIntent(prompt) ?: return null
+            Log.d(TAG, "Raw output: $raw")
             if (raw.isBlank()) return null
             return parseOutput(raw.trim())
         } catch (e: Exception) {
@@ -75,13 +67,10 @@ User: $userMessage
 
     /**
      * Parse FunctionGemma output.
-     * Format: "call:function_name{json}" or "no_action"
+     * Format: "call:function_name{key:<escape>value<escape>,key2:<escape>value2<escape>}"
      */
     private fun parseOutput(raw: String): HushAction? {
-        // no_action
-        if (raw.startsWith("no_action")) return null
-
-        // Extract function name and JSON params
+        if (raw.contains("no_action")) return null
         if (!raw.startsWith("call:")) return null
 
         try {
@@ -90,40 +79,44 @@ User: $userMessage
             if (braceIdx < 0) return null
 
             val funcName = afterCall.substring(0, braceIdx)
-            // Find the FIRST complete JSON object (ignore trailing garbage)
-            val jsonStart = afterCall.indexOf('{')
-            val jsonEnd = afterCall.indexOf('}', jsonStart)
-            if (jsonEnd < 0) return null
+            val inner = afterCall.substring(braceIdx + 1).substringBefore('}')
 
-            val jsonStr = afterCall.substring(jsonStart, jsonEnd + 1)
-            val params = JSONObject(jsonStr)
+            // Parse key:<escape>value<escape> pairs
+            val params = mutableMapOf<String, String>()
+            for (pair in inner.split(",")) {
+                val kv = pair.split(":", limit = 2)
+                if (kv.size == 2) {
+                    params[kv[0].trim()] = kv[1].trim()
+                        .removePrefix("<escape>").removeSuffix("<escape>").trim()
+                }
+            }
 
             return when (funcName) {
                 "send_message" -> HushAction(
                     type = ActionType.MESSAGE,
-                    contact = params.optString("contact", ""),
-                    body = params.optString("body", ""),
-                    app = params.optString("app", "whatsapp")
+                    contact = params["contact"] ?: "",
+                    body = params["body"] ?: "",
+                    app = params["app"] ?: "whatsapp"
                 )
                 "make_call" -> HushAction(
                     type = ActionType.CALL,
-                    contact = params.optString("contact", "")
+                    contact = params["contact"] ?: ""
                 )
                 "send_email" -> HushAction(
                     type = ActionType.EMAIL,
-                    to = params.optString("to", ""),
-                    subject = params.optString("subject", ""),
-                    body = params.optString("body", "")
+                    to = params["to"] ?: "",
+                    subject = params["subject"] ?: "",
+                    body = params["body"] ?: ""
                 )
                 "create_calendar_event" -> HushAction(
                     type = ActionType.CALENDAR,
-                    title = params.optString("title", ""),
-                    date = params.optString("date", ""),
-                    time = params.optString("time", "")
+                    title = params["title"] ?: "",
+                    date = params["date"] ?: "",
+                    time = params["time"] ?: ""
                 )
                 "open_app" -> HushAction(
-                    type = ActionType.MESSAGE, // reuse for now
-                    contact = params.optString("name", "")
+                    type = ActionType.MESSAGE,
+                    contact = params["name"] ?: ""
                 )
                 else -> null
             }

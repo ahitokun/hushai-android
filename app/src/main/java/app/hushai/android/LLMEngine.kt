@@ -60,9 +60,9 @@ class LLMEngine(private val context: Context) {
     init { modelsDir.mkdirs() }
 
     companion object {
-        const val ROUTER_URL = "https://github.com/ahitokun/hushai-android/releases/download/v1.4/hush-functiongemma.Q8_0.gguf"
-        const val ROUTER_FILENAME = "hush-functiongemma.Q8_0.gguf"
-        const val ROUTER_SIZE_MB = 272
+        const val ROUTER_URL = "https://huggingface.co/unsloth/functiongemma-270m-it-GGUF/resolve/main/functiongemma-270m-it-Q8_0.gguf"
+        const val ROUTER_FILENAME = "functiongemma-270m-it-Q8_0.gguf"
+        const val ROUTER_SIZE_MB = 292
     }
 
     fun isRouterDownloaded(): Boolean {
