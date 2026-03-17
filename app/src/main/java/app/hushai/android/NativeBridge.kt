@@ -78,6 +78,20 @@ class NativeBridge {
     /** Get model description string (for debug/UI). */
     external fun getModelInfo(): String
 
+    // ── Router model (FunctionGemma) for intent detection ──
+
+    /** Load the FunctionGemma router model. Call once at startup. */
+    external fun loadRouter(modelPath: String): Boolean
+
+    /** Classify user intent. Returns raw FunctionGemma output (e.g. "call:send_message{...}" or "no_action" or "" if router not loaded). */
+    external fun classifyIntent(prompt: String): String
+
+    /** Check if router model is loaded. */
+    external fun isRouterLoaded(): Boolean
+
+    /** Release router model resources. */
+    external fun releaseRouter()
+
     // --- Callback from native code (called during generate()) ---
 
     /**
@@ -106,6 +120,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
     private val bridge = NativeBridge()
     private var isLoaded = false
     private var loadedPath: String? = null
+    private val scope = CoroutineScope(Dispatchers.IO.limitedParallelism(1) + SupervisorJob())
 
     /**
      * Load the model. Call once, not per message.
@@ -123,7 +138,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
         val nThreads = maxOf(2, minOf(4, Runtime.getRuntime().availableProcessors() / 2))
         Log.d("InferenceV2", "Loading model: $path (threads=$nThreads)")
 
-        CoroutineScope(Dispatchers.IO.limitedParallelism(1)).launch {
+        scope.launch {
             try {
                 val nCtx = if (path.contains("0.8b") || isBudget) 2048 else if (path.contains("4b")) 8192 else 4096
                 val success = bridge.loadModel(path, nCtx, nThreads)
@@ -204,7 +219,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
         }
 
         // Run generation on IO thread
-        CoroutineScope(Dispatchers.IO.limitedParallelism(1)).launch {
+        scope.launch {
             try {
                 val result = bridge.generate(formatted, 500)
                 withContext(Dispatchers.Main) {
@@ -244,10 +259,10 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
 
         val systemPrompt = if (isBudget) {
             buildString {
-                append("You are Hush AI, a private offline assistant. ")
-                append("Be honest. Never invent phone numbers or URLs. Respond in the user's language. ")
+                append("You are Hush AI, a private assistant. ")
+                append("Be helpful and honest. If you don't know, say so. Respond in the user's language. When asked to translate, just translate. ")
                 append(lengthGuide)
-                
+                append(" When the user asks to call, text, or email someone, just confirm briefly like 'Sure, calling Mom.' The app handles the action.")
                 if (installedApps.isNotEmpty()) append(" $installedApps")
             }
         } else {
@@ -261,11 +276,11 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
                 append("You are Hush AI, a private assistant running on-device. ")
                 append("No data leaves this phone. Today is $now. Timezone: $tz. Locale: $locale. ")
                 append("Respond in the user's language.\n")
-                append("Be helpful, concise, and honest. Keep answers brief unless asked for detail. Never invent specific phone numbers, URLs, or addresses. Your knowledge has a cutoff — do not make up facts you're unsure about. ")
-                append("You work offline with no internet access.\n")
-                append("STYLE: $lengthGuide Match the user's tone.\n")
-                append("When mentioning places, include the full name and address if known. When mentioning phone numbers, include the full number.\n")
+                append("Be helpful, concise, and honest. Keep answers brief unless asked for detail. Do not make up specific phone numbers or URLs. If you do not know something, say you don't know. ")
+                append("You are knowledgeable and helpful. When asked to translate, just translate. When asked how to say something in another language, just provide the translation.\n")
+                append("STYLE: $lengthGuide Match the user's tone. /no_think\n")
                 if (installedApps.isNotEmpty()) append("$installedApps\n")
+                append("\nWhen the user asks to call, text, or email someone, just confirm briefly like 'Sure, calling Mom.' or 'Sending message to Sarah.' The app handles the actual action. Do not question their intent.\n")
             }
         }
 
@@ -292,6 +307,7 @@ class InferenceEngineV2(private val appContext: android.content.Context, private
 
     fun release() {
         stop()
+        scope.cancel()
         bridge.release()
         isLoaded = false
     }

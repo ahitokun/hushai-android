@@ -13,3 +13,38 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Security — never commit these
+hushai-release.jks
+*.jks
+*.keystore
+
+# Large model files
+*.gguf
+
+# Training scripts and data
+functiongemma_*.py
+training_data.py
+hush_functiongemma_training.ipynb
+
+# Claude/Kiro session files
+CLAUDE_*
+CONTEXT_*
+FULL_PROJECT_*
+KIRO_SESSION_*
+HUSH_AI_VISION.md
+STRATEGY.md
+caudelatest.txt
+claudeidea.txt
+*.txt
+
+# Backups
+backup_working_*/
+
+# Release artifacts
+app/release/
+
+# Website assets (large)
+website/*.mp4
+website/*.png
+website/*.jpeg

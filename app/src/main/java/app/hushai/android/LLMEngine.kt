@@ -59,6 +59,17 @@ class LLMEngine(private val context: Context) {
 
     init { modelsDir.mkdirs() }
 
+    companion object {
+        const val ROUTER_URL = "https://github.com/ahitokun/hushai-android/releases/download/v1.4/hush-functiongemma.Q8_0.gguf"
+        const val ROUTER_FILENAME = "hush-functiongemma.Q8_0.gguf"
+        const val ROUTER_SIZE_MB = 272
+    }
+
+    fun isRouterDownloaded(): Boolean {
+        val file = File(modelsDir, ROUTER_FILENAME)
+        return file.exists() && file.length() > ROUTER_SIZE_MB * 900000L
+    }
+
     fun isModelDownloaded(tierId: String): Boolean {
         val model = MODELS[tierId] ?: return false
         val file = File(modelsDir, model.fileName)
@@ -71,60 +82,105 @@ class LLMEngine(private val context: Context) {
         return if (file.exists()) file.absolutePath else null
     }
 
+    /** Single download function — downloads router + chat model as one seamless flow */
     suspend fun downloadModel(tierId: String) {
         val model = MODELS[tierId] ?: return
-        val file = File(modelsDir, model.fileName)
+        val chatFile = File(modelsDir, model.fileName)
+        val routerFile = File(modelsDir, ROUTER_FILENAME)
+        val needsRouter = tierId != "swift" && !isRouterDownloaded()
+        val needsChat = !chatFile.exists() || chatFile.length() < model.sizeMB * 1000000L * 0.95
 
-        if (file.exists() && file.length() > 1000000) {
+        if (!needsRouter && !needsChat) {
             _downloadState.value = DownloadState.Complete
             return
         }
 
-        withContext(Dispatchers.IO) {
-            try {
-                _downloadState.value = DownloadState.Downloading(0f, 0, model.sizeMB)
-                var connection = URL(model.url).openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 30000
-                connection.readTimeout = 30000
-                connection.instanceFollowRedirects = true
-                // Follow redirects manually (HuggingFace uses 302s)
-                if (connection.responseCode in 301..303 || connection.responseCode == 307) {
-                    val redirect = connection.getHeaderField("Location")
-                    connection.disconnect()
-                    connection = URL(redirect).openConnection() as java.net.HttpURLConnection
-                    connection.connectTimeout = 30000
-                    connection.readTimeout = 30000
-                }
-                val totalBytes = connection.contentLengthLong
-                val input = connection.getInputStream()
-                val output = file.outputStream()
-                val buffer = ByteArray(8192)
-                var downloaded = 0L
+        // Total size = router (if needed) + chat model (if needed)
+        val totalMB = (if (needsRouter) ROUTER_SIZE_MB else 0) + (if (needsChat) model.sizeMB else 0)
 
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    output.write(buffer, 0, read)
-                    downloaded += read
-                    val progress = if (totalBytes > 0) downloaded.toFloat() / totalBytes else 0f
-                    _downloadState.value = DownloadState.Downloading(
-                        progress, (downloaded / 1048576).toInt(), model.sizeMB
-                    )
+        withContext(Dispatchers.IO) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "hushai:download")
+            wakeLock.acquire(60 * 60 * 1000L)
+            downloadCancelled = false
+            try {
+                var totalDownloaded = 0L
+                val totalBytes = totalMB * 1048576L
+
+                _downloadState.value = DownloadState.Downloading(0f, 0, totalMB)
+
+                // Phase 1: Download router (if needed, Smart/Genius only)
+                if (needsRouter) {
+                    try {
+                        totalDownloaded = downloadFile(ROUTER_URL, routerFile, totalDownloaded, totalBytes, totalMB)
+                    } catch (e: Exception) {
+                        // Router download failed — continue with chat model anyway
+                        android.util.Log.e("LLMEngine", "Router download failed: ${e.message}")
+                    }
                 }
-                output.close()
-                input.close()
+
+                // Phase 2: Download chat model (if needed)
+                if (needsChat) {
+                    totalDownloaded = downloadFile(model.url, chatFile, totalDownloaded, totalBytes, totalMB)
+                }
+
                 _downloadState.value = DownloadState.Complete
             } catch (e: Exception) {
-                file.delete()
                 _downloadState.value = DownloadState.Error(e.message ?: "Download failed")
+            } finally {
+                if (wakeLock.isHeld) wakeLock.release()
             }
         }
     }
 
+    @Volatile private var downloadCancelled = false
+
+    /** Download a single file with resume support and progress reporting */
+    private fun downloadFile(url: String, destFile: File, startOffset: Long, totalBytes: Long, totalMB: Int): Long {
+        val tempFile = File(destFile.absolutePath + ".partial")
+        var existingBytes = if (tempFile.exists()) tempFile.length() else 0L
+
+        var connection = URL(url).openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 30000
+        connection.readTimeout = 30000
+        connection.instanceFollowRedirects = true
+        if (existingBytes > 0) connection.setRequestProperty("Range", "bytes=$existingBytes-")
+
+        if (connection.responseCode in 301..303 || connection.responseCode == 307) {
+            val redirect = connection.getHeaderField("Location")
+            connection.disconnect()
+            connection = URL(redirect).openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 30000
+            connection.readTimeout = 30000
+            if (existingBytes > 0) connection.setRequestProperty("Range", "bytes=$existingBytes-")
+        }
+
+        val input = connection.inputStream
+        val output = java.io.FileOutputStream(tempFile, existingBytes > 0)
+        val buffer = ByteArray(8192)
+        var fileDownloaded = existingBytes
+        var totalDownloaded = startOffset + existingBytes
+
+        while (true) {
+            if (downloadCancelled) { output.close(); input.close(); return totalDownloaded }
+            val read = input.read(buffer)
+            if (read == -1) break
+            output.write(buffer, 0, read)
+            fileDownloaded += read
+            totalDownloaded += read
+            val progress = if (totalBytes > 0) totalDownloaded.toFloat() / totalBytes else 0f
+            _downloadState.value = DownloadState.Downloading(
+                progress, (totalDownloaded / 1048576).toInt(), totalMB
+            )
+        }
+        output.close()
+        input.close()
+        tempFile.renameTo(destFile)
+        return totalDownloaded
+    }
+
     fun cancelDownload(tierId: String) {
-        val model = MODELS[tierId] ?: return
-        val file = File(modelsDir, model.fileName)
-        file.delete()
+        downloadCancelled = true
         _downloadState.value = DownloadState.Idle
     }
 

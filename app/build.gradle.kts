@@ -22,8 +22,8 @@ android {
         applicationId = "app.hushai.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 6
+        versionName = "1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -67,6 +67,7 @@ dependencies {
     implementation("com.google.android.play:review-ktx:2.0.2")
     implementation(libs.androidx.compose.material3)
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

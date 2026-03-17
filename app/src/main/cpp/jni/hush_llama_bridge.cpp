@@ -2,7 +2,7 @@
  * hush_llama_bridge.cpp — JNI bridge for Hush AI
  *
  * Minimal JNI wrapper around llama.cpp for Android ARM64.
- * Tested against llama.cpp b7446. Supports Qwen3 GGUF models.
+ * Tested against llama.cpp b8187. Supports Qwen3.5 GGUF models.
  *
  * Key design decisions:
  * - Depends only on llama.h (not common.h) to avoid build breakage
@@ -35,7 +35,7 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 
 // ============================================================================
-// Global state — one model loaded at a time (fine for a phone app)
+// Global state — chat model (Qwen3.5)
 // ============================================================================
 
 static struct {
@@ -50,6 +50,19 @@ static struct {
 
     std::mutex mtx;  // protects load/release
 } g_state;
+
+// ============================================================================
+// Global state — router model (FunctionGemma) for intent detection
+// ============================================================================
+
+static struct {
+    llama_model   *model   = nullptr;
+    llama_context *ctx     = nullptr;
+    llama_sampler *sampler = nullptr;
+    const llama_vocab *vocab = nullptr;
+    std::mutex mtx;
+    bool loaded = false;
+} g_router;
 
 // ============================================================================
 // Helper: tokenize a string
@@ -257,7 +270,6 @@ Java_app_hushai_android_NativeBridge_generate(
     }
 
     g_state.stop_requested.store(false);
-    llama_memory_clear(llama_get_memory(g_state.ctx), true);
     llama_sampler_reset(g_state.sampler);
 
     const char *prompt_cstr = env->GetStringUTFChars(jPrompt, nullptr);
@@ -280,8 +292,16 @@ Java_app_hushai_android_NativeBridge_generate(
     int max_prompt = n_ctx - 1024;
     if (max_prompt < 64) max_prompt = 64;
     if ((int)tokens.size() > max_prompt) {
-        LOGD("Truncating prompt from %zu to %d tokens to fit context (safety limit)", tokens.size(), max_prompt);
-        tokens.resize(max_prompt);
+        // Truncate from the MIDDLE — keep the start (system prompt) and end (user question + assistant marker)
+        int keep_end = 512;     // user question + assistant turn marker — always preserved
+        int keep_start = max_prompt - keep_end;  // everything else goes to the beginning (system prompt + document start)
+        if (keep_start < 256) { keep_start = 256; keep_end = max_prompt - keep_start; }
+        int to_remove = (int)tokens.size() - max_prompt;
+        LOGD("Truncating prompt from %zu to %d tokens (removing %d from middle, keeping %d start + %d end)", tokens.size(), max_prompt, to_remove, keep_start, keep_end);
+        std::vector<llama_token> truncated;
+        truncated.insert(truncated.end(), tokens.begin(), tokens.begin() + keep_start);
+        truncated.insert(truncated.end(), tokens.end() - keep_end, tokens.end());
+        tokens = std::move(truncated);
     }
 
     LOGD("Prompt tokenized: %zu tokens", tokens.size());
@@ -440,4 +460,159 @@ Java_app_hushai_android_NativeBridge_countTokens(
     env->ReleaseStringUTFChars(jText, text);
     auto tokens = tokenize(str, false, false);
     return (jint)tokens.size();
+}
+
+// ============================================================================
+// JNI: Load router model (FunctionGemma)
+// ============================================================================
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_hushai_android_NativeBridge_loadRouter(
+    JNIEnv *env, jobject, jstring jModelPath
+) {
+    std::lock_guard<std::mutex> lock(g_router.mtx);
+
+    if (g_router.model) {
+        LOGI("Router already loaded, skipping");
+        return JNI_TRUE;
+    }
+
+    llama_backend_init();
+
+    const char *path = env->GetStringUTFChars(jModelPath, nullptr);
+    LOGI("Loading router model: %s", path);
+
+    llama_model_params mp = llama_model_default_params();
+    mp.n_gpu_layers = 0;
+    mp.use_mmap = true;
+    mp.use_mlock = false;
+
+    g_router.model = llama_model_load_from_file(path, mp);
+    env->ReleaseStringUTFChars(jModelPath, path);
+
+    if (!g_router.model) {
+        LOGE("Failed to load router model");
+        return JNI_FALSE;
+    }
+
+    g_router.vocab = llama_model_get_vocab(g_router.model);
+
+    llama_context_params cp = llama_context_default_params();
+    cp.n_ctx = 512;        // router needs tiny context
+    cp.n_batch = 256;
+    cp.n_ubatch = 256;
+    cp.n_threads = 2;      // minimal threads
+    cp.n_threads_batch = 2;
+    cp.no_perf = true;
+    cp.rope_freq_base = 0.0f;
+    cp.rope_freq_scale = 0.0f;
+
+    g_router.ctx = llama_new_context_with_model(g_router.model, cp);
+    if (!g_router.ctx) {
+        LOGE("Failed to create router context");
+        llama_model_free(g_router.model);
+        g_router.model = nullptr;
+        g_router.vocab = nullptr;
+        return JNI_FALSE;
+    }
+
+    // Sampler: low temperature for deterministic classification
+    llama_sampler_chain_params sp = llama_sampler_chain_default_params();
+    sp.no_perf = true;
+    g_router.sampler = llama_sampler_chain_init(sp);
+    llama_sampler_chain_add(g_router.sampler, llama_sampler_init_temp(0.1f));
+    llama_sampler_chain_add(g_router.sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    g_router.loaded = true;
+    LOGI("Router model loaded successfully");
+    return JNI_TRUE;
+}
+
+// ============================================================================
+// JNI: Classify intent using router model
+// Returns raw string output from FunctionGemma (e.g. "call:send_message{...}" or "no_action")
+// ============================================================================
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_hushai_android_NativeBridge_classifyIntent(
+    JNIEnv *env, jobject, jstring jPrompt
+) {
+    if (!g_router.loaded || !g_router.model || !g_router.ctx) {
+        return env->NewStringUTF("");  // empty = no router, fallback
+    }
+
+    std::lock_guard<std::mutex> lock(g_router.mtx);
+    llama_sampler_reset(g_router.sampler);
+
+    const char *prompt_cstr = env->GetStringUTFChars(jPrompt, nullptr);
+    std::string prompt(prompt_cstr);
+    env->ReleaseStringUTFChars(jPrompt, prompt_cstr);
+
+    // Tokenize using router's vocab
+    int n = llama_tokenize(g_router.vocab, prompt.c_str(), (int)prompt.length(), nullptr, 0, true, true);
+    std::vector<llama_token> tokens(std::abs(n));
+    llama_tokenize(g_router.vocab, prompt.c_str(), (int)prompt.length(), tokens.data(), (int)tokens.size(), true, true);
+
+    if (tokens.empty()) return env->NewStringUTF("");
+
+    // Clear KV cache
+    llama_memory_clear(llama_get_memory(g_router.ctx), true);
+
+    // Process prompt
+    llama_batch batch = llama_batch_get_one(tokens.data(), (int)tokens.size());
+    if (llama_decode(g_router.ctx, batch) != 0) {
+        LOGE("Router decode failed");
+        return env->NewStringUTF("");
+    }
+
+    // Generate up to 128 tokens (function call output is short)
+    std::string result;
+    for (int i = 0; i < 128; i++) {
+        llama_token tok = llama_sampler_sample(g_router.sampler, g_router.ctx, -1);
+        llama_sampler_accept(g_router.sampler, tok);
+
+        if (llama_token_is_eog(g_router.vocab, tok)) break;
+
+        char buf[256];
+        int len = llama_token_to_piece(g_router.vocab, tok, buf, sizeof(buf), 0, true);
+        if (len > 0) result.append(buf, len);
+
+        // Early stop: if we have a complete JSON object, stop
+        if (result.find("}") != std::string::npos && result.find("call:") != std::string::npos) break;
+        if (result == "no_action") break;
+
+        llama_batch single = llama_batch_get_one(&tok, 1);
+        if (llama_decode(g_router.ctx, single) != 0) break;
+    }
+
+    LOGD("Router classified: %s", result.c_str());
+    return env->NewStringUTF(result.c_str());
+}
+
+// ============================================================================
+// JNI: Check if router is loaded
+// ============================================================================
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_hushai_android_NativeBridge_isRouterLoaded(
+    JNIEnv *env, jobject
+) {
+    return g_router.loaded ? JNI_TRUE : JNI_FALSE;
+}
+
+// ============================================================================
+// JNI: Release router model
+// ============================================================================
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_hushai_android_NativeBridge_releaseRouter(
+    JNIEnv *env, jobject
+) {
+    std::lock_guard<std::mutex> lock(g_router.mtx);
+    LOGI("Releasing router model");
+    if (g_router.sampler) { llama_sampler_free(g_router.sampler); g_router.sampler = nullptr; }
+    if (g_router.ctx) { llama_free(g_router.ctx); g_router.ctx = nullptr; }
+    if (g_router.model) { llama_model_free(g_router.model); g_router.model = nullptr; }
+    g_router.vocab = nullptr;
+    g_router.loaded = false;
 }
